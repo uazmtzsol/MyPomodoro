@@ -1,2 +1,13 @@
-pyinstaller --noconsole --onefile --name "PomodoroTimer" --icon=ModernPomodoro.ico --add-data "ModernPomodoro.ico;." --add-data "tick_normal.wav;." --add-data "tick_slow.wav;." --add-data "notification.wav;." main8.py > logCompilacion.log 
+@echo off
+echo Limpiando compilaciones anteriores...
+if exist "build" rmdir /s /q "build"
+if exist "dist" rmdir /s /q "dist"
+if exist "PomodoroTimer.spec" del /q "PomodoroTimer.spec"
 
+echo Empaquetando aplicacion desde la carpeta resources...
+pyinstaller --noconsole --onefile --name "PomodoroTimer" --icon="resources/ModernPomodoro.ico" --add-data "resources/ModernPomodoro.ico;." --add-data "resources/tick_normal.wav;." --add-data "resources/tick_slow.wav;." --add-data "resources/notification.wav;." MyPomodoro.py > logCompilacion.log
+
+echo.
+echo ¡Compilacion completada! Revisa logCompilacion.log si hubo errores.
+echo El ejecutable esta en la carpeta 'dist'.
+pause

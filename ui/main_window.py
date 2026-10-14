@@ -9,6 +9,7 @@ from core.stats import StatsManager
 from core.timer import (
     PomodoroTimer, SessionType, TimerState, SESSION_NAMES,
 )
+from services.ambient_library import AmbientLibrary
 from services.audio_manager import AudioManager
 from services.config_manager import ConfigManager
 from ui.config_dialog import ConfigDialog
@@ -27,6 +28,7 @@ class MainWindow(QMainWindow):
         self.config = ConfigManager()
         self.audio = AudioManager(self.config)
         self.stats = StatsManager()
+        self.ambient_library = AmbientLibrary(self.config.ambient_dir)
         self.timer = PomodoroTimer(
             self.stats, self._durations(), self.config.get("consecutive_sessions")
         )
@@ -34,6 +36,7 @@ class MainWindow(QMainWindow):
 
         self._drag_pos = None
         self._last_shown = None
+        self._loading_ambient = False
 
         self._setup_window()
         self._setup_ui()
@@ -155,6 +158,37 @@ class MainWindow(QMainWindow):
         self.chk_tick.toggled.connect(self._on_tick_toggled)
         self.combo_sound.currentIndexChanged.connect(self._on_sound_changed)
 
+        amb_row = QHBoxLayout()
+        self.chk_ambient = QCheckBox("Ambiente")
+        self.chk_ambient.setChecked(self.config.get("ambient_enabled"))
+        self.combo_ambient = QComboBox()
+        amb_row.addWidget(self.chk_ambient)
+        amb_row.addStretch()
+        amb_row.addWidget(self.combo_ambient)
+        self.root_layout.addLayout(amb_row)
+        self.expanded_widgets.extend([self.chk_ambient, self.combo_ambient])
+
+        amb_vol_row = QHBoxLayout()
+        amb_vol_row.setSpacing(6)
+        lbl_amb = QLabel("🌧 Ambiente")
+        lbl_amb.setStyleSheet("font-size: 11px;")
+        self.slider_ambient = QSlider(Qt.Orientation.Horizontal)
+        self.slider_ambient.setRange(0, 100)
+        self.slider_ambient.setValue(self.config.get("ambient_volume"))
+        self.lbl_ambient = QLabel(f"{self.config.get('ambient_volume')}%")
+        self.lbl_ambient.setFixedWidth(34)
+        self.lbl_ambient.setStyleSheet("font-size: 10px; color: #9999a8;")
+        amb_vol_row.addWidget(lbl_amb)
+        amb_vol_row.addWidget(self.slider_ambient)
+        amb_vol_row.addWidget(self.lbl_ambient)
+        self.root_layout.addLayout(amb_vol_row)
+        self.expanded_widgets.extend([lbl_amb, self.slider_ambient, self.lbl_ambient])
+
+        self._reload_ambient_controls()
+        self.chk_ambient.toggled.connect(self._on_ambient_toggled)
+        self.combo_ambient.currentIndexChanged.connect(self._on_ambient_track_changed)
+        self.slider_ambient.valueChanged.connect(self._on_ambient_volume_changed)
+
         self.lbl_stats = QLabel("")
         self.lbl_stats.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_stats.setStyleSheet("font-size: 10px; color: #a8a8b8; padding: 4px;")
@@ -261,21 +295,26 @@ class MainWindow(QMainWindow):
         if (self.timer.session_type is SessionType.WORK
                 or self.config.get("tick_during_breaks")):
             self.audio.start_tick()
+        self.audio.start_ambient()
 
     def _on_paused(self):
         self.ui_timer.stop()
         self.audio.pause_tick()
+        self.audio.pause_ambient()
 
     def _on_resumed(self):
         self.audio.resume_tick()
+        self.audio.resume_ambient()
 
     def _on_stopped(self):
         self.ui_timer.stop()
         self.audio.stop_tick()
+        self.audio.stop_ambient()
 
     def _on_session_complete(self, finished):
         self.ui_timer.stop()
         self.audio.stop_tick()
+        self.audio.stop_ambient()
         self.audio.play_notification()
         name = SESSION_NAMES.get(finished, "Sesión")
         if self.tray.available:
@@ -297,6 +336,58 @@ class MainWindow(QMainWindow):
         name = self.combo_sound.currentData()
         if name:
             self.audio.set_tick_sound(name)
+
+    def _reload_ambient_controls(self):
+        self._loading_ambient = True
+        try:
+            self.combo_ambient.clear()
+            self.combo_ambient.addItem("(Ninguno)", "")
+            for entry in self.ambient_library.entries():
+                self.combo_ambient.addItem(entry["name"], entry["filename"])
+            current = self.config.get("ambient_track")
+            idx = self.combo_ambient.findData(current)
+            if idx < 0 and current:
+                self.config.set("ambient_track", "")
+                idx = 0
+            self.combo_ambient.setCurrentIndex(idx if idx >= 0 else 0)
+            self.chk_ambient.setChecked(bool(self.config.get("ambient_enabled")))
+            volume = int(self.config.get("ambient_volume"))
+            self.slider_ambient.setValue(volume)
+            self.lbl_ambient.setText(f"{volume}%")
+        finally:
+            self._loading_ambient = False
+
+    def _on_ambient_toggled(self, checked):
+        if self._loading_ambient:
+            return
+        self.audio.set_ambient_enabled(checked)
+        if checked and self.timer.is_running:
+            self.audio.start_ambient()
+        elif not checked:
+            self.audio.stop_ambient()
+
+    def _on_ambient_track_changed(self, index):
+        if self._loading_ambient:
+            return
+        track = self.combo_ambient.currentData() or ""
+        self.audio.set_ambient_track(track)
+        if self.timer.is_running:
+            self.audio.start_ambient()
+
+    def _on_ambient_volume_changed(self, value):
+        if self._loading_ambient:
+            return
+        self.audio.set_ambient_volume(value)
+        self.lbl_ambient.setText(f"{value}%")
+
+    def _apply_ambient(self):
+        self.audio.set_ambient_enabled(self.config.get("ambient_enabled"))
+        self.audio.set_ambient_volume(self.config.get("ambient_volume"))
+        self.audio.set_ambient_track(self.config.get("ambient_track"))
+        if self.timer.is_running and self.config.get("ambient_enabled"):
+            self.audio.start_ambient()
+        else:
+            self.audio.stop_ambient()
 
     def _update_display(self):
         state = self.timer.state
@@ -346,7 +437,7 @@ class MainWindow(QMainWindow):
             self.tray.update(self.timer.remaining_seconds, state.value, session_name)
 
     def _on_config(self):
-        dialog = ConfigDialog(self, self.config, self.audio)
+        dialog = ConfigDialog(self, self.config, self.audio, self.ambient_library)
         if dialog.exec():
             self.timer.set_config(
                 self._durations(), int(self.config.get("consecutive_sessions"))
@@ -354,6 +445,8 @@ class MainWindow(QMainWindow):
             if self.timer.state is TimerState.IDLE:
                 self.timer.load_session(self.timer.session_type)
             self._apply_window_flags()
+            self._reload_ambient_controls()
+            self._apply_ambient()
             self._update_display()
             self.show()
 

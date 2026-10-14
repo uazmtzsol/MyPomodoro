@@ -21,6 +21,9 @@ class ConfigManager:
         "tick_sound": "normal",
         "tick_during_breaks": False,
         "notification_volume": 80,
+        "ambient_enabled": False,
+        "ambient_volume": 40,
+        "ambient_track": "",
         "sounds_installed": False,
     }
 
@@ -29,6 +32,8 @@ class ConfigManager:
         self.config_path = self.config_dir / "config.json"
         self.sounds_dir = self.config_dir / "sounds"
         self.sounds_dir.mkdir(parents=True, exist_ok=True)
+        self.ambient_dir = self.config_dir / "ambient"
+        self.ambient_dir.mkdir(parents=True, exist_ok=True)
         self.config = self._load()
 
     def _load(self):
@@ -70,13 +75,13 @@ class ConfigManager:
             except (TypeError, ValueError):
                 merged[key] = default
 
-        for key in ("tick_volume", "notification_volume"):
+        for key in ("tick_volume", "notification_volume", "ambient_volume"):
             raw = loaded.get(key)
             if isinstance(raw, float) and 0.0 <= raw <= 1.0:
                 merged[key] = int(round(raw * 100))
 
-        merged["tick_volume"] = max(0, min(100, merged["tick_volume"]))
-        merged["notification_volume"] = max(0, min(100, merged["notification_volume"]))
+        for key in ("tick_volume", "notification_volume", "ambient_volume"):
+            merged[key] = max(0, min(100, merged[key]))
         return merged
 
     def save(self):

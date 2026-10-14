@@ -79,6 +79,8 @@ def install_sounds(config: ConfigManager):
 # AUDIO
 # ============================================================================
 class AudioManager:
+    AMBIENT_FADE_MS = 400
+
     def __init__(self, config: ConfigManager):
         self.config = config
         self.initialized = False
@@ -86,6 +88,8 @@ class AudioManager:
         self.notification_sound = None
         self._channel = None
         self._mixer_paused = False
+        self._ambient_playing = False
+        self._previewing = False
         self.error = None
         self._initialize()
 
@@ -204,8 +208,115 @@ class AudioManager:
         if not enabled:
             self.stop_tick()
 
+    # ------------------------------------------------------------------- ambiente
+    def _ambient_volume_norm(self):
+        return max(0.0, min(1.0, self.config.get("ambient_volume") / 100.0))
+
+    def _ambient_path(self):
+        track = self.config.get("ambient_track")
+        if not track:
+            return None
+        path = self.config.ambient_dir / track
+        return path if path.exists() else None
+
+    def start_ambient(self):
+        """Reproduce la pista ambiental en bucle (independiente del tictac)."""
+        if not self.initialized or not self.config.get("ambient_enabled"):
+            return
+        if self._ambient_playing:
+            return
+        path = self._ambient_path()
+        if path is None:
+            return
+        try:
+            self._previewing = False
+            pygame.mixer.music.load(str(path))
+            pygame.mixer.music.set_volume(self._ambient_volume_norm())
+            pygame.mixer.music.play(-1, fade_ms=self.AMBIENT_FADE_MS)
+            self._ambient_playing = True
+        except Exception as e:
+            self.error = str(e)
+            self._ambient_playing = False
+
+    def stop_ambient(self):
+        if not self.initialized:
+            self._ambient_playing = False
+            return
+        try:
+            if self._ambient_playing:
+                pygame.mixer.music.fadeout(self.AMBIENT_FADE_MS)
+        except Exception:
+            pass
+        self._ambient_playing = False
+
+    def pause_ambient(self):
+        if self.initialized and self._ambient_playing:
+            try:
+                pygame.mixer.music.pause()
+            except Exception:
+                pass
+
+    def resume_ambient(self):
+        if not self.initialized:
+            return
+        if self._ambient_playing:
+            try:
+                pygame.mixer.music.unpause()
+            except Exception:
+                pass
+        else:
+            self.start_ambient()
+
+    def set_ambient_volume(self, value):
+        self.config.set("ambient_volume", int(value))
+        if self.initialized:
+            try:
+                pygame.mixer.music.set_volume(self._ambient_volume_norm())
+            except Exception:
+                pass
+
+    def set_ambient_enabled(self, enabled):
+        self.config.set("ambient_enabled", bool(enabled))
+        if not enabled:
+            self.stop_ambient()
+
+    def set_ambient_track(self, filename):
+        was_playing = self._ambient_playing
+        self.stop_ambient()
+        self.config.set("ambient_track", filename or "")
+        if was_playing:
+            self.start_ambient()
+
+    def preview_ambient(self, path):
+        """Reproduce una pista una sola vez (para el dialogo de gestion)."""
+        if not self.initialized:
+            return False
+        try:
+            self._ambient_playing = False
+            self._previewing = True
+            pygame.mixer.music.load(str(path))
+            pygame.mixer.music.set_volume(self._ambient_volume_norm())
+            pygame.mixer.music.play(0)
+            return True
+        except Exception as e:
+            self.error = str(e)
+            return False
+
+    def stop_preview(self):
+        if self.initialized and self._previewing:
+            try:
+                pygame.mixer.music.stop()
+            except Exception:
+                pass
+        self._previewing = False
+
+    def stop_all_music(self):
+        self.stop_preview()
+        self.stop_ambient()
+
     def cleanup(self):
         self.stop_tick()
+        self.stop_all_music()
         if self.initialized:
             pygame.mixer.quit()
             self.initialized = False

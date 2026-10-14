@@ -1,17 +1,20 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QHBoxLayout, QSpinBox, QCheckBox,
-    QSlider, QPushButton,
+    QSlider, QPushButton, QComboBox,
 )
+
+from ui.ambient_dialog import AmbientDialog
 
 
 class ConfigDialog(QDialog):
     """Diálogo de ajustes del temporizador."""
 
-    def __init__(self, parent, config, audio):
+    def __init__(self, parent, config, audio, library):
         super().__init__(parent)
         self.config = config
         self.audio = audio
+        self.library = library
         self.setWindowTitle("Ajustes")
         self.setModal(True)
         self.setMinimumWidth(360)
@@ -56,6 +59,24 @@ class ConfigDialog(QDialog):
         self.chk_breaks.setChecked(config.get("tick_during_breaks"))
         layout.addRow(self.chk_breaks)
 
+        self.chk_ambient = QCheckBox("Sonido ambiental de fondo")
+        self.chk_ambient.setChecked(config.get("ambient_enabled"))
+        layout.addRow(self.chk_ambient)
+
+        self.combo_ambient = QComboBox()
+        layout.addRow("Sonido ambiental:", self.combo_ambient)
+
+        self.slider_ambient = QSlider(Qt.Orientation.Horizontal)
+        self.slider_ambient.setRange(0, 100)
+        self.slider_ambient.setValue(config.get("ambient_volume"))
+        layout.addRow("Volumen ambiente:", self.slider_ambient)
+
+        self.btn_manage_ambient = QPushButton("Gestionar sonidos ambientales…")
+        self.btn_manage_ambient.clicked.connect(self._manage_ambient)
+        layout.addRow(self.btn_manage_ambient)
+
+        self._reload_ambient()
+
         buttons = QHBoxLayout()
         btn_test = QPushButton("Probar sonido")
         btn_test.clicked.connect(self._test)
@@ -68,6 +89,22 @@ class ConfigDialog(QDialog):
         buttons.addWidget(btn_ok)
         buttons.addWidget(btn_cancel)
         layout.addRow(buttons)
+
+    def _reload_ambient(self):
+        self.combo_ambient.clear()
+        self.combo_ambient.addItem("(Ninguno)", "")
+        for entry in self.library.entries():
+            self.combo_ambient.addItem(entry["name"], entry["filename"])
+        idx = self.combo_ambient.findData(self.config.get("ambient_track"))
+        self.combo_ambient.setCurrentIndex(idx if idx >= 0 else 0)
+
+    def _manage_ambient(self):
+        dialog = AmbientDialog(self, self.library, self.audio)
+        dialog.exec()
+        current = self.combo_ambient.currentData()
+        self._reload_ambient()
+        idx = self.combo_ambient.findData(current)
+        self.combo_ambient.setCurrentIndex(idx if idx >= 0 else 0)
 
     def _test(self):
         self.audio.set_notification_volume(self.slider_notif.value())
@@ -83,5 +120,8 @@ class ConfigDialog(QDialog):
         self.config.set("tick_during_breaks", self.chk_breaks.isChecked())
         self.config.set("progress_mode",
                         "progressive" if self.chk_progressive.isChecked() else "regressive")
+        self.config.set("ambient_enabled", self.chk_ambient.isChecked())
+        self.config.set("ambient_volume", self.slider_ambient.value())
+        self.config.set("ambient_track", self.combo_ambient.currentData() or "")
         self.audio.set_notification_volume(self.slider_notif.value())
         super().accept()

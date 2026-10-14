@@ -3,6 +3,14 @@ from PyQt6.QtGui import QPainter, QPen, QColor, QFont
 from PyQt6.QtWidgets import QWidget, QSizePolicy
 
 
+PALETTES = {
+    "dark": {"ring_bg": QColor(60, 60, 70), "label": QColor(180, 180, 195),
+             "sat": 230, "value": 240},
+    "light": {"ring_bg": QColor(210, 210, 218), "label": QColor(90, 90, 105),
+              "sat": 220, "value": 190},
+}
+
+
 class ProgressCircle(QWidget):
     """Círculo de progreso con el tiempo restante en el centro."""
 
@@ -12,9 +20,14 @@ class ProgressCircle(QWidget):
         self.elapsed = 0.0
         self.time_text = "25:00"
         self.session_type = "Trabajo"
+        self.theme = "dark"
         self.setMinimumSize(110, 110)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+    def set_theme(self, theme):
+        self.theme = theme if theme in PALETTES else "dark"
+        self.update()
 
     def set_ring(self, value):
         self.ring = max(0.0, min(1.0, value))
@@ -29,7 +42,8 @@ class ProgressCircle(QWidget):
         self.session_type = text
 
     def color(self):
-        return QColor.fromHsv(int(120 * (1 - self.elapsed)), 230, 240)
+        p = PALETTES[self.theme]
+        return QColor.fromHsv(int(120 * (1 - self.elapsed)), p["sat"], p["value"])
 
     def refresh(self):
         self.update()
@@ -45,7 +59,7 @@ class ProgressCircle(QWidget):
         c = QPointF(rect.center())
         ring_rect = QRectF(c.x() - radius, c.y() - radius, radius * 2, radius * 2)
 
-        bg = QPen(QColor(60, 60, 70))
+        bg = QPen(PALETTES[self.theme]["ring_bg"])
         bg.setWidth(pen_w)
         bg.setCapStyle(Qt.PenCapStyle.RoundCap)
         p.setPen(bg)
@@ -62,7 +76,7 @@ class ProgressCircle(QWidget):
         p.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.time_text)
 
         p.setFont(QFont("Segoe UI", max(8, int(size / 14))))
-        p.setPen(QColor(180, 180, 195))
+        p.setPen(PALETTES[self.theme]["label"])
         label_rect = QRectF(rect)
         label_rect.setTop(c.y() + size / 8)
         p.drawText(label_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,

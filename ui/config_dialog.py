@@ -51,6 +51,10 @@ class ConfigDialog(QDialog):
         self.chk_top.setChecked(config.get("always_on_top"))
         layout.addRow(self.chk_top)
 
+        self.chk_light = QCheckBox("Tema claro")
+        self.chk_light.setChecked(config.get("theme") == "light")
+        layout.addRow(self.chk_light)
+
         self.chk_progressive = QCheckBox("Progreso progresivo (si no, regresivo)")
         self.chk_progressive.setChecked(config.get("progress_mode") == "progressive")
         layout.addRow(self.chk_progressive)
@@ -58,6 +62,10 @@ class ConfigDialog(QDialog):
         self.chk_breaks = QCheckBox("Tictac también durante descansos")
         self.chk_breaks.setChecked(config.get("tick_during_breaks"))
         layout.addRow(self.chk_breaks)
+
+        self.chk_active_breaks = QCheckBox("Sugerencias durante los descansos")
+        self.chk_active_breaks.setChecked(config.get("active_breaks_enabled"))
+        layout.addRow(self.chk_active_breaks)
 
         self.chk_ambient = QCheckBox("Sonido ambiental de fondo")
         self.chk_ambient.setChecked(config.get("ambient_enabled"))
@@ -110,7 +118,9 @@ class ConfigDialog(QDialog):
         self.config.set("consecutive_sessions", self.spin_consecutive.value())
         self.config.set("notification_volume", self.slider_notif.value())
         self.config.set("always_on_top", self.chk_top.isChecked())
+        self.config.set("theme", "light" if self.chk_light.isChecked() else "dark")
         self.config.set("tick_during_breaks", self.chk_breaks.isChecked())
+        self.config.set("active_breaks_enabled", self.chk_active_breaks.isChecked())
         self.config.set("progress_mode",
                         "progressive" if self.chk_progressive.isChecked() else "regressive")
         self.config.set("ambient_enabled", self.chk_ambient.isChecked())

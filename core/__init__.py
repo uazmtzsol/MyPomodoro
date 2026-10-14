@@ -7,6 +7,7 @@ from core.timer import (
 )
 from core.stats import StatsManager
 from core.tasks import TaskManager
+from core.break_tips import BreakTips, BREAK_TIPS
 
 __all__ = [
     "PomodoroTimer",
@@ -16,4 +17,6 @@ __all__ = [
     "DURATION_KEYS",
     "StatsManager",
     "TaskManager",
+    "BreakTips",
+    "BREAK_TIPS",
 ]

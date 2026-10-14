@@ -24,6 +24,8 @@ class ConfigManager:
         "ambient_enabled": False,
         "ambient_volume": 40,
         "ambient_track": "",
+        "active_breaks_enabled": True,
+        "theme": "dark",
         "sounds_installed": False,
     }
 

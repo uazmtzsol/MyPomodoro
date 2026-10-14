@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 
 from core.stats import StatsManager
 from core.tasks import TaskManager
+from core.break_tips import BreakTips
 from core.timer import (
     PomodoroTimer, SessionType, TimerState, SESSION_NAMES,
 )
@@ -16,7 +17,7 @@ from services.config_manager import ConfigManager
 from services.resource_manager import get_resources_dir
 from ui.config_dialog import ConfigDialog
 from ui.progress_circle import ProgressCircle
-from ui.styles import MAIN_STYLESHEET
+from ui.styles import get_stylesheet
 from ui.system_tray import SystemTray
 from ui.tasks_dialog import TasksDialog
 from ui.widgets import TimeButton
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
             self.config.ambient_dir, get_resources_dir()
         )
         self.audio = AudioManager(self.config, self.ambient_library)
+        self.break_tips = BreakTips()
         self.timer = PomodoroTimer(
             self.stats, self._durations(), self.config.get("consecutive_sessions")
         )
@@ -43,6 +45,7 @@ class MainWindow(QMainWindow):
         self._drag_pos = None
         self._last_shown = None
         self._loading_ambient = False
+        self._active_tip = None
 
         self._setup_window()
         self._setup_ui()
@@ -78,7 +81,13 @@ class MainWindow(QMainWindow):
 
     def _setup_window(self):
         self.setWindowTitle("Pomodoro Timer")
-        self.setStyleSheet(MAIN_STYLESHEET)
+        self._apply_theme()
+
+    def _apply_theme(self):
+        theme = self.config.get("theme")
+        self.setStyleSheet(get_stylesheet(theme))
+        if hasattr(self, "circle"):
+            self.circle.set_theme(theme)
 
     def _setup_ui(self):
         central = QWidget()
@@ -119,21 +128,29 @@ class MainWindow(QMainWindow):
         self.expanded_widgets = []
 
         self.circle = ProgressCircle()
+        self.circle.set_theme(self.config.get("theme"))
         self.root_layout.addWidget(self.circle, stretch=1)
         self.expanded_widgets.append(self.circle)
 
         self.lbl_status = QLabel("Listo para comenzar")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_status.setStyleSheet("font-size: 10px; color: #9999a8;")
+        self.lbl_status.setObjectName("status_caption")
         self.root_layout.addWidget(self.lbl_status)
         self.expanded_widgets.append(self.lbl_status)
 
         self.lbl_task = QLabel("")
         self.lbl_task.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_task.setWordWrap(True)
-        self.lbl_task.setStyleSheet("font-size: 10px; color: #c8c8d8;")
+        self.lbl_task.setObjectName("task_caption")
         self.root_layout.addWidget(self.lbl_task)
         self.expanded_widgets.append(self.lbl_task)
+
+        self.lbl_tip = QLabel("")
+        self.lbl_tip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_tip.setWordWrap(True)
+        self.lbl_tip.setObjectName("tip_caption")
+        self.root_layout.addWidget(self.lbl_tip)
+        self.expanded_widgets.append(self.lbl_tip)
 
         vol_row = QHBoxLayout()
         vol_row.setSpacing(6)
@@ -144,7 +161,7 @@ class MainWindow(QMainWindow):
         self.slider_volume.setValue(self.config.get("tick_volume"))
         self.lbl_volume = QLabel(f"{self.config.get('tick_volume')}%")
         self.lbl_volume.setFixedWidth(34)
-        self.lbl_volume.setStyleSheet("font-size: 10px; color: #9999a8;")
+        self.lbl_volume.setObjectName("value_caption")
         vol_row.addWidget(lbl_vol)
         vol_row.addWidget(self.slider_volume)
         vol_row.addWidget(self.lbl_volume)
@@ -195,7 +212,7 @@ class MainWindow(QMainWindow):
         self.slider_ambient.setValue(self.config.get("ambient_volume"))
         self.lbl_ambient = QLabel(f"{self.config.get('ambient_volume')}%")
         self.lbl_ambient.setFixedWidth(34)
-        self.lbl_ambient.setStyleSheet("font-size: 10px; color: #9999a8;")
+        self.lbl_ambient.setObjectName("value_caption")
         amb_vol_row.addWidget(lbl_amb)
         amb_vol_row.addWidget(self.slider_ambient)
         amb_vol_row.addWidget(self.lbl_ambient)
@@ -209,7 +226,7 @@ class MainWindow(QMainWindow):
 
         self.lbl_stats = QLabel("")
         self.lbl_stats.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_stats.setStyleSheet("font-size: 10px; color: #a8a8b8; padding: 4px;")
+        self.lbl_stats.setObjectName("stats_caption")
         self.root_layout.addWidget(self.lbl_stats)
         self.expanded_widgets.append(self.lbl_stats)
 
@@ -300,6 +317,11 @@ class MainWindow(QMainWindow):
         self.setWindowFlags(flags)
 
     # --------------------------------------------------------------- temporizador
+    def _is_break(self):
+        return self.timer.session_type in (
+            SessionType.SHORT_BREAK, SessionType.LONG_BREAK
+        )
+
     def _on_play_pause(self):
         self.timer.toggle()
 
@@ -319,6 +341,8 @@ class MainWindow(QMainWindow):
                 or self.config.get("tick_during_breaks")):
             self.audio.start_tick()
         self.audio.start_ambient()
+        if self._is_break():
+            self._active_tip = self.break_tips.next()
         self._sync_preview_button()
 
     def _on_paused(self):
@@ -454,7 +478,15 @@ class MainWindow(QMainWindow):
              active["estimated"], active["done"])
             if active else None
         )
-        key = (state, self.timer.session_type, self.timer.remaining_seconds, task_key)
+        if self._is_break() and self.config.get("active_breaks_enabled"):
+            if self._active_tip is None:
+                self._active_tip = self.break_tips.next()
+            tip_text = self._active_tip
+        else:
+            self._active_tip = None
+            tip_text = ""
+        key = (state, self.timer.session_type, self.timer.remaining_seconds,
+               task_key, tip_text)
         if key == self._last_shown:
             return
         self._last_shown = key
@@ -466,7 +498,9 @@ class MainWindow(QMainWindow):
         elapsed = max(0.0, min(1.0, self.timer.elapsed_ratio))
 
         self.btn_time.setText(time_str)
-        color = QColor.fromHsv(int(120 * (1 - elapsed)), 230, 240)
+        light = self.config.get("theme") == "light"
+        color = QColor.fromHsv(int(120 * (1 - elapsed)),
+                               220 if light else 230, 190 if light else 240)
         self.btn_time.setStyleSheet(
             f"color: rgb({color.red()},{color.green()},{color.blue()});"
             "background: transparent; border: none;"
@@ -499,6 +533,9 @@ class MainWindow(QMainWindow):
         task_text = self.tasks.progress_text(active)
         self.lbl_task.setText(f"📋 {task_text}" if task_text else "Sin tarea activa")
 
+        self.lbl_tip.setText(f"🧘 {tip_text}" if tip_text else "")
+        self.lbl_tip.setVisible(bool(tip_text) and self.config.get("expanded_mode"))
+
         if self.tray.available:
             self.tray.update(
                 self.timer.remaining_seconds, state.value, session_name, task_text
@@ -521,6 +558,7 @@ class MainWindow(QMainWindow):
             self._apply_window_flags()
             self._reload_ambient_controls()
             self._apply_ambient()
+            self._apply_theme()
             self._update_display()
             self.show()
 

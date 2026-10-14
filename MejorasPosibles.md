@@ -41,9 +41,9 @@ propuesta de orden de implementacion (1 = antes).
 | C1 | Gestion de tareas | Lista de tareas con estimacion de pomodoros, tarea activa, historial diario | Media | Muy alto | [x] | 1 (hecha) |
 | C2 | Estadisticas visuales | Graficos semanal, heatmap, tiempo por categoria, exportar CSV | Media | Alto | [ ] | 4 |
 | C3 | Sonidos ambientales | Subida de audios propios, nombre, seleccion, volumen propio | Baja | Alto | [x] | 2 (hecha) |
-| C4 | Descansos activos | Sugerencias de ejercicios en el descanso + temporizador | Muy baja | Medio-Alto | [ ] | 3 |
+| C4 | Descansos activos | Sugerencias de ejercicios en el descanso + temporizador | Muy baja | Medio-Alto | [x] | 3 (hecha) |
 | C5 | Modo No Molestar | Activar DND del SO, bloquear sitios, pausar notificaciones | Alta | Alto (power users) | [ ] | 6 |
-| C6 | Temas y personalizacion | Claro/oscuro automatico, paletas, fuentes, tamano del circulo | Media | Medio | [ ] | 5 |
+| C6 | Temas y personalizacion | Claro/oscuro automatico, paletas, fuentes, tamano del circulo | Media | Medio | [x] (solo tema claro) | 5 |
 | C7 | Recordatorios inteligentes | "Listo para empezar?", hidratacion, postura, resumen diario | Baja | Medio | [ ] | 7 |
 | C8 | Sincronizacion entre dispositivos | Stats/config/tareas en la nube | Alta | Alto (avanzados) | [ ] | 9 |
 | C9 | Logros / gamificacion | Insignias (primer pomodoro, racha 7 dias, 100 pomodoros...) | Baja-Media | Medio | [ ] | 8 |
@@ -72,7 +72,7 @@ Evidencia: carpeta `02-PrimerRefactor` (no versionada). Fuente de ideas, no de a
 | D2 | `ComentariosMac.md` referencia `MyPomodoro.py` y rutas viejas | [ ] | Actualizar a `main.py` + `resources/` |
 | D3 | Falta `instalar_mac.sh` real (solo descrito) | [ ] | Crear al retomar mac |
 | D4 | Sin pruebas automatizadas de `core/` | [ ] | Anadir tests basicos de timer/stats |
-| D5 | `logCompilacion.log` no ignorado por git | [ ] | Anadir a `.gitignore` |
+| D5 | `logCompilacion.log` no ignorado por git | [x] | Anadido a `.gitignore` (+ `03-ExtraFiles/`) |
 | D6 | Comillas/separador `:` en empaquetado mac | [ ] | Ver `ComentariosMac.md` |
 
 ---
@@ -81,9 +81,9 @@ Evidencia: carpeta `02-PrimerRefactor` (no versionada). Fuente de ideas, no de a
 
 1. **C1 - Gestion de tareas** (corazon del metodo). Hecha.
 2. **C3 - Sonidos ambientales** (hecha).
-3. **C4 - Descansos activos** (bienestar, trivial).
+3. **C4 - Descansos activos** (bienestar, trivial). Hecha.
 4. **C2 - Estadisticas visuales** (motivacion; encaja con B1/B2/B3).
-5. **C6 - Temas/personalizacion**.
+5. **C6 - Tema claro** (hecho; paletas/fuentes/tamano del circulo pendientes).
 6. C5, C7, C9, C8, C10 segun interes.
 
 ---
@@ -205,3 +205,67 @@ activa). El **historial diario** quedo diferido a C2 (ya tenemos `completed_at`)
 
 Prueba de no-regresion: sin tarea activa, el comportamiento del temporizador es
 identico al actual.
+
+---
+
+## 5. Implementado: C4 - Descansos activos
+
+Resultado: durante los descansos la ventana (modo expandido) muestra una
+**sugerencia** breve (ergonomia, vista, respiracion). Se rota sin repetir la
+anterior. Se puede desactivar desde Ajustes.
+
+### 5.1 Decisiones tomadas
+
+- Lista de consejos en `core/break_tips.py` (`BREAK_TIPS`) + selector `BreakTips`
+  que baraja y evita repeticiones consecutivas (logica pura y testeable).
+- La sugerencia solo aparece en **descansos** (corto o largo) y solo en modo
+  **expandido** (etiqueta `lbl_tip`, object name `tip_caption`).
+- Clave de configuracion `active_breaks_enabled` (por defecto `True`), con
+  checkbox "Sugerencias durante los descansos" en Ajustes.
+- El consejo se fija al **iniciar** cada descanso (`_on_counting_started`).
+- No se envia notificacion aparte para no pisar el mensaje de "Trabajo completado".
+
+### 5.2 Plan incremental y pruebas
+
+1. `core/break_tips.py`: `BREAK_TIPS` + `BreakTips.next()` (exportado en `core/__init__.py`).
+2. `ConfigManager`: clave `active_breaks_enabled`.
+3. `ui/main_window.py`: `lbl_tip`, `_is_break()`, rotacion en descansos.
+4. `ui/config_dialog.py`: checkbox de activacion.
+5. Pruebas: no-repeticion y lista vacia (`test_break_styles.py`) + smoke GUI
+   (aparece en descanso, se oculta en trabajo) (`smoke_c4_c6.py`).
+
+Prueba de no-regresion: con la opcion desactivada, no hay cambios visibles.
+
+---
+
+## 6. Implementado: C6 - Tema claro (alcance reducido)
+
+Resultado: se anadio **un unico tema claro** seleccionable desde Ajustes
+("Tema claro"), sin personalizacion adicional (paletas, fuentes, tamaño del
+circulo quedan pendientes). Por defecto se mantiene el tema oscuro.
+
+### 6.1 Decisiones tomadas
+
+- Alcance limitado a peticion del usuario: solo claro/oscuro, sin mas opciones.
+- `ui/styles.py` pasa de una constante a `get_stylesheet(theme)` con `PALETTES`
+  (claves `dark`/`light`). `MAIN_STYLESHEET` se conserva como alias del oscuro.
+- Los colores de texto que antes estaban en `setStyleSheet` inline se movieron a
+  reglas por `objectName` (`status_caption`, `value_caption`, `stats_caption`,
+  `task_caption`, `tip_caption`) para que cambien con el tema.
+- `ProgressCircle`: `set_theme()` ajusta el aro de fondo y la etiqueta; el color
+  del tiempo usa un valor mas oscuro en claro para mantener contraste sobre blanco.
+- Clave `theme` (`"dark"` por defecto / `"light"`) y checkbox "Tema claro".
+- El tema se aplica en la ventana principal (`_apply_theme`) y al aceptar Ajustes;
+  los dialogos heredan el QSS del widget padre.
+
+### 6.2 Plan incremental y pruebas
+
+1. `services/config_manager.py`: clave `theme`.
+2. `ui/styles.py`: `get_stylesheet(theme)` + `PALETTES`.
+3. `ui/progress_circle.py`: aro/etiqueta/color segun tema.
+4. `ui/main_window.py`: `_apply_theme()`, object names, color del tiempo por tema.
+5. `ui/config_dialog.py`: checkbox "Tema claro".
+6. Pruebas: `get_stylesheet` distinto por tema y sin `None` (`test_break_styles.py`)
+   + smoke GUI de cambio de tema (`smoke_c4_c6.py`).
+
+Prueba de no-regresion: sin tocar Ajustes, todo se ve como antes (tema oscuro).

@@ -3,21 +3,46 @@ import re
 import shutil
 from pathlib import Path
 
+from services.resource_manager import get_resources_dir
+
 SUPPORTED_EXTENSIONS = (".wav", ".ogg", ".mp3", ".flac")
 META_FILENAME = "library.json"
+
+# Sonidos incluidos con la app (en resources/). No se pueden gestionar ni borrar.
+BUILTIN_SOUNDS = (
+    {"filename": "rain.ogg", "name": "Lluvia"},
+    {"filename": "ambience.ogg", "name": "Ambiente"},
+)
+
+
+def format_size(num_bytes):
+    """Tamaño legible: 512 B, 4.2 KB, 5.0 MB, 1.2 GB."""
+    size = float(max(0, num_bytes))
+    if size < 1024:
+        return f"{int(size)} B"
+    for unit in ("KB", "MB", "GB"):
+        size /= 1024
+        if size < 1024 or unit == "GB":
+            return f"{size:.1f} {unit}"
 
 
 class AmbientLibrary:
     """
-    Biblioteca de sonidos ambientales del usuario.
+    Biblioteca de sonidos ambientales.
 
-    Guarda los archivos en ``base_dir`` y mantiene un mapa ``archivo -> nombre``
-    legible en ``library.json``. No depende de Qt (logica de filesystem pura).
+    Combina dos origenes:
+    - **Incluidos** (``BUILTIN_SOUNDS``): vienen con la app en el directorio de
+      recursos (bundle o ``resources/``). Siempre existen y no se gestionan.
+    - **Del usuario**: archivos en ``base_dir`` con nombre legible en
+      ``library.json``. Se pueden subir, renombrar y quitar.
+
+    No depende de Qt (logica de filesystem pura).
     """
 
-    def __init__(self, base_dir):
+    def __init__(self, base_dir, builtin_dir=None):
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.builtin_dir = Path(builtin_dir) if builtin_dir else get_resources_dir()
         self.meta_path = self.base_dir / META_FILENAME
         self._names = self._load()
 
@@ -39,7 +64,25 @@ class AmbientLibrary:
 
     # ------------------------------------------------------------------ consultas
     def entries(self):
-        """Lista de {filename, name, path} ordenada por nombre legible."""
+        """Incluidos primero, luego los del usuario (ordenados por nombre)."""
+        return self.builtin_entries() + self.user_entries()
+
+    def builtin_entries(self):
+        result = []
+        for spec in BUILTIN_SOUNDS:
+            path = self.builtin_dir / spec["filename"]
+            if not path.is_file():
+                continue
+            result.append({
+                "filename": spec["filename"],
+                "name": spec["name"],
+                "path": path,
+                "size": self._size(path),
+                "builtin": True,
+            })
+        return result
+
+    def user_entries(self):
         result = []
         for path in self.base_dir.iterdir():
             if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
@@ -48,17 +91,34 @@ class AmbientLibrary:
                 "filename": path.name,
                 "name": self.display_name(path.name),
                 "path": path,
+                "size": self._size(path),
+                "builtin": False,
             })
         result.sort(key=lambda e: e["name"].lower())
         return result
 
+    @staticmethod
+    def _size(path):
+        try:
+            return path.stat().st_size
+        except OSError:
+            return 0
+
+    def is_builtin(self, filename):
+        return any(spec["filename"] == filename for spec in BUILTIN_SOUNDS)
+
     def exists(self, filename):
-        return bool(filename) and (self.base_dir / filename).is_file()
+        return bool(filename) and self.path(filename).is_file()
 
     def path(self, filename):
+        if self.is_builtin(filename):
+            return self.builtin_dir / filename
         return self.base_dir / filename
 
     def display_name(self, filename):
+        for spec in BUILTIN_SOUNDS:
+            if spec["filename"] == filename:
+                return spec["name"]
         return self._names.get(filename) or Path(filename).stem
 
     def is_supported(self, filename):
@@ -81,6 +141,8 @@ class AmbientLibrary:
         return filename
 
     def remove(self, filename):
+        if self.is_builtin(filename):
+            raise ValueError("Los sonidos incluidos no se pueden eliminar.")
         path = self.base_dir / filename
         if path.exists():
             path.unlink()
@@ -88,7 +150,7 @@ class AmbientLibrary:
         self._save()
 
     def rename(self, filename, new_name):
-        if not self.exists(filename):
+        if self.is_builtin(filename) or not self.exists(filename):
             return
         clean = (new_name or "").strip()
         self._names[filename] = clean or Path(filename).stem
@@ -99,9 +161,10 @@ class AmbientLibrary:
         path = Path(original)
         stem = self._sanitize(path.stem)
         ext = path.suffix.lower()
+        reserved = {spec["filename"].lower() for spec in BUILTIN_SOUNDS}
         candidate = f"{stem}{ext}"
         counter = 1
-        while (self.base_dir / candidate).exists():
+        while (self.base_dir / candidate).exists() or candidate.lower() in reserved:
             candidate = f"{stem}_{counter}{ext}"
             counter += 1
         return candidate

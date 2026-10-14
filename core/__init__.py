@@ -6,6 +6,7 @@ from core.timer import (
     DURATION_KEYS,
 )
 from core.stats import StatsManager
+from core.tasks import TaskManager
 
 __all__ = [
     "PomodoroTimer",
@@ -14,4 +15,5 @@ __all__ = [
     "SESSION_NAMES",
     "DURATION_KEYS",
     "StatsManager",
+    "TaskManager",
 ]

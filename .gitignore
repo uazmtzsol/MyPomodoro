@@ -2,6 +2,7 @@
 /build
 /dist
 /02-PrimerRefactor
+/03-ExtraFiles
 
 __pycache__/
 *.py[cod]

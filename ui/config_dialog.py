@@ -78,13 +78,10 @@ class ConfigDialog(QDialog):
         self._reload_ambient()
 
         buttons = QHBoxLayout()
-        btn_test = QPushButton("Probar sonido")
-        btn_test.clicked.connect(self._test)
         btn_ok = QPushButton("Guardar")
         btn_ok.clicked.connect(self.accept)
         btn_cancel = QPushButton("Cancelar")
         btn_cancel.clicked.connect(self.reject)
-        buttons.addWidget(btn_test)
         buttons.addStretch()
         buttons.addWidget(btn_ok)
         buttons.addWidget(btn_cancel)
@@ -105,10 +102,6 @@ class ConfigDialog(QDialog):
         self._reload_ambient()
         idx = self.combo_ambient.findData(current)
         self.combo_ambient.setCurrentIndex(idx if idx >= 0 else 0)
-
-    def _test(self):
-        self.audio.set_notification_volume(self.slider_notif.value())
-        self.audio.play_notification()
 
     def accept(self):
         self.config.set("work_duration", self.spin_work.value())

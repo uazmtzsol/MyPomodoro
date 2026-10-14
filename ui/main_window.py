@@ -6,16 +6,19 @@ from PyQt6.QtWidgets import (
 )
 
 from core.stats import StatsManager
+from core.tasks import TaskManager
 from core.timer import (
     PomodoroTimer, SessionType, TimerState, SESSION_NAMES,
 )
 from services.ambient_library import AmbientLibrary
 from services.audio_manager import AudioManager
 from services.config_manager import ConfigManager
+from services.resource_manager import get_resources_dir
 from ui.config_dialog import ConfigDialog
 from ui.progress_circle import ProgressCircle
 from ui.styles import MAIN_STYLESHEET
 from ui.system_tray import SystemTray
+from ui.tasks_dialog import TasksDialog
 from ui.widgets import TimeButton
 
 
@@ -26,9 +29,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = ConfigManager()
-        self.audio = AudioManager(self.config)
         self.stats = StatsManager()
-        self.ambient_library = AmbientLibrary(self.config.ambient_dir)
+        self.tasks = TaskManager()
+        self.ambient_library = AmbientLibrary(
+            self.config.ambient_dir, get_resources_dir()
+        )
+        self.audio = AudioManager(self.config, self.ambient_library)
         self.timer = PomodoroTimer(
             self.stats, self._durations(), self.config.get("consecutive_sessions")
         )
@@ -122,6 +128,13 @@ class MainWindow(QMainWindow):
         self.root_layout.addWidget(self.lbl_status)
         self.expanded_widgets.append(self.lbl_status)
 
+        self.lbl_task = QLabel("")
+        self.lbl_task.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_task.setWordWrap(True)
+        self.lbl_task.setStyleSheet("font-size: 10px; color: #c8c8d8;")
+        self.root_layout.addWidget(self.lbl_task)
+        self.expanded_widgets.append(self.lbl_task)
+
         vol_row = QHBoxLayout()
         vol_row.setSpacing(6)
         lbl_vol = QLabel("🔊 Tic-tac")
@@ -162,11 +175,16 @@ class MainWindow(QMainWindow):
         self.chk_ambient = QCheckBox("Ambiente")
         self.chk_ambient.setChecked(self.config.get("ambient_enabled"))
         self.combo_ambient = QComboBox()
+        self.btn_preview = QPushButton("▶")
+        self.btn_preview.setFixedWidth(30)
+        self.btn_preview.setToolTip("Probar el sonido ambiental seleccionado")
+        self.btn_preview.clicked.connect(self._on_preview_ambient)
         amb_row.addWidget(self.chk_ambient)
         amb_row.addStretch()
+        amb_row.addWidget(self.btn_preview)
         amb_row.addWidget(self.combo_ambient)
         self.root_layout.addLayout(amb_row)
-        self.expanded_widgets.extend([self.chk_ambient, self.combo_ambient])
+        self.expanded_widgets.extend([self.chk_ambient, self.btn_preview, self.combo_ambient])
 
         amb_vol_row = QHBoxLayout()
         amb_vol_row.setSpacing(6)
@@ -196,14 +214,17 @@ class MainWindow(QMainWindow):
         self.expanded_widgets.append(self.lbl_stats)
 
         action_row = QHBoxLayout()
+        self.btn_tasks = QPushButton("📋 Tareas")
+        self.btn_tasks.clicked.connect(self._on_tasks)
         self.btn_settings = QPushButton("⚙ Ajustes")
         self.btn_settings.clicked.connect(self._on_config)
         self.btn_collapse = QPushButton("⤡ Compactar")
         self.btn_collapse.clicked.connect(self._toggle_mode)
+        action_row.addWidget(self.btn_tasks)
         action_row.addWidget(self.btn_settings)
         action_row.addWidget(self.btn_collapse)
         self.root_layout.addLayout(action_row)
-        self.expanded_widgets.extend([self.btn_settings, self.btn_collapse])
+        self.expanded_widgets.extend([self.btn_tasks, self.btn_settings, self.btn_collapse])
 
     def _setup_tray(self):
         self.tray = SystemTray(
@@ -262,6 +283,7 @@ class MainWindow(QMainWindow):
     def _quit_app(self):
         self.save_position()
         self.stats.save()
+        self.tasks.save()
         if self.tray.available:
             self.tray.hide()
         self.audio.cleanup()
@@ -292,15 +314,19 @@ class MainWindow(QMainWindow):
 
     def _on_counting_started(self):
         self.ui_timer.start(200)
+        self.audio.stop_preview()
         if (self.timer.session_type is SessionType.WORK
                 or self.config.get("tick_during_breaks")):
             self.audio.start_tick()
         self.audio.start_ambient()
+        self._sync_preview_button()
 
     def _on_paused(self):
         self.ui_timer.stop()
         self.audio.pause_tick()
         self.audio.pause_ambient()
+        self.audio.stop_preview()
+        self._sync_preview_button()
 
     def _on_resumed(self):
         self.audio.resume_tick()
@@ -310,15 +336,30 @@ class MainWindow(QMainWindow):
         self.ui_timer.stop()
         self.audio.stop_tick()
         self.audio.stop_ambient()
+        self.audio.stop_preview()
+        self._sync_preview_button()
 
     def _on_session_complete(self, finished):
         self.ui_timer.stop()
         self.audio.stop_tick()
         self.audio.stop_ambient()
+        self.audio.stop_preview()
+        self._sync_preview_button()
         self.audio.play_notification()
+
+        task = None
+        auto_done = False
+        if finished is SessionType.WORK:
+            task, auto_done = self.tasks.record_pomodoro()
+            self._update_display()
+
         name = SESSION_NAMES.get(finished, "Sesión")
         if self.tray.available:
-            self.tray.show_message("Pomodoro Timer", f"¡{name} completado!", 3000)
+            if auto_done and task:
+                message = f"¡Tarea completada! {task['title']}"
+            else:
+                message = f"¡{name} completado!"
+            self.tray.show_message("Pomodoro Timer", message, 3000)
 
     # --------------------------------------------------------------- opciones UI
     def _on_volume_changed(self, value):
@@ -343,7 +384,8 @@ class MainWindow(QMainWindow):
             self.combo_ambient.clear()
             self.combo_ambient.addItem("(Ninguno)", "")
             for entry in self.ambient_library.entries():
-                self.combo_ambient.addItem(entry["name"], entry["filename"])
+                label = f"🔒 {entry['name']}" if entry["builtin"] else entry["name"]
+                self.combo_ambient.addItem(label, entry["filename"])
             current = self.config.get("ambient_track")
             idx = self.combo_ambient.findData(current)
             if idx < 0 and current:
@@ -356,6 +398,7 @@ class MainWindow(QMainWindow):
             self.lbl_ambient.setText(f"{volume}%")
         finally:
             self._loading_ambient = False
+        self._sync_preview_button()
 
     def _on_ambient_toggled(self, checked):
         if self._loading_ambient:
@@ -373,12 +416,26 @@ class MainWindow(QMainWindow):
         self.audio.set_ambient_track(track)
         if self.timer.is_running:
             self.audio.start_ambient()
+        if self.audio.is_previewing() and track:
+            self.audio.stop_preview()
+            self.audio.preview_ambient(self.ambient_library.path(track))
+        self._sync_preview_button()
 
     def _on_ambient_volume_changed(self, value):
         if self._loading_ambient:
             return
         self.audio.set_ambient_volume(value)
         self.lbl_ambient.setText(f"{value}%")
+
+    def _on_preview_ambient(self):
+        track = self.combo_ambient.currentData()
+        if not track:
+            return
+        self.audio.toggle_preview(self.ambient_library.path(track))
+        self._sync_preview_button()
+
+    def _sync_preview_button(self):
+        self.btn_preview.setText("⏹" if self.audio.is_previewing() else "▶")
 
     def _apply_ambient(self):
         self.audio.set_ambient_enabled(self.config.get("ambient_enabled"))
@@ -391,7 +448,13 @@ class MainWindow(QMainWindow):
 
     def _update_display(self):
         state = self.timer.state
-        key = (state, self.timer.session_type, self.timer.remaining_seconds)
+        active = self.tasks.get_active()
+        task_key = (
+            (active["id"], active["title"], active["completed"],
+             active["estimated"], active["done"])
+            if active else None
+        )
+        key = (state, self.timer.session_type, self.timer.remaining_seconds, task_key)
         if key == self._last_shown:
             return
         self._last_shown = key
@@ -433,8 +496,19 @@ class MainWindow(QMainWindow):
             self.stats.text(int(self.config.get("consecutive_sessions")))
         )
 
+        task_text = self.tasks.progress_text(active)
+        self.lbl_task.setText(f"📋 {task_text}" if task_text else "Sin tarea activa")
+
         if self.tray.available:
-            self.tray.update(self.timer.remaining_seconds, state.value, session_name)
+            self.tray.update(
+                self.timer.remaining_seconds, state.value, session_name, task_text
+            )
+
+    def _on_tasks(self):
+        dialog = TasksDialog(self, self.tasks)
+        dialog.changed.connect(self._update_display)
+        dialog.exec()
+        self._update_display()
 
     def _on_config(self):
         dialog = ConfigDialog(self, self.config, self.audio, self.ambient_library)

@@ -82,16 +82,17 @@ class SystemTray:
         p.end()
         return QIcon(pm)
 
-    def update(self, remaining_seconds, state, session_name):
+    def update(self, remaining_seconds, state, session_name, task_text=""):
         """Redibuja el icono con el tiempo restante y ajusta tooltip/menú."""
         if not self._tray:
             return
 
         self._tray.setIcon(self._build_icon(remaining_seconds))
 
-        self._tray.setToolTip(
-            f"Pomodoro Timer — {_STATE_LABELS.get(state, '')} — {session_name}"
-        )
+        tooltip = f"Pomodoro Timer — {_STATE_LABELS.get(state, '')} — {session_name}"
+        if task_text:
+            tooltip += f"\n📋 {task_text}"
+        self._tray.setToolTip(tooltip)
         if self._action_play is not None:
             self._action_play.setText("⏸ Pausar" if state == "running" else "▶ Iniciar")
 

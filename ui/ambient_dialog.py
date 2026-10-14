@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QInputDialog, QMessageBox, QFileDialog,
 )
 
+from services.ambient_library import format_size
+
 _AUDIO_FILTER = "Audio (*.wav *.ogg *.mp3 *.flac)"
 
 
@@ -24,7 +26,9 @@ class AmbientDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(8)
 
-        info = QLabel("Sube tus audios (.wav, .ogg, .mp3, .flac) y ponles un nombre.")
+        info = QLabel("Sube tus audios (.wav, .ogg, .mp3, .flac) y ponles un nombre.\n"
+                      "Para ocupar menos espacio usa ogg/mp3: un wav pesa ~10× más "
+                      "que el mismo audio comprimido.")
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -35,7 +39,7 @@ class AmbientDialog(QDialog):
         self.btn_add = QPushButton("Subir…")
         self.btn_rename = QPushButton("Renombrar")
         self.btn_remove = QPushButton("Quitar")
-        self.btn_preview = QPushButton("Probar")
+        self.btn_preview = QPushButton("▶ Probar")
         actions.addWidget(self.btn_add)
         actions.addWidget(self.btn_rename)
         actions.addWidget(self.btn_remove)
@@ -54,6 +58,7 @@ class AmbientDialog(QDialog):
         self.btn_remove.clicked.connect(self._remove)
         self.btn_preview.clicked.connect(self._preview)
         self.btn_close.clicked.connect(self.accept)
+        self.list.currentItemChanged.connect(self._on_selection_changed)
 
         self._reload()
 
@@ -61,17 +66,47 @@ class AmbientDialog(QDialog):
     def _reload(self):
         self.list.clear()
         for entry in self.library.entries():
-            item = QListWidgetItem(entry["name"])
+            size = format_size(entry["size"])
+            if entry["builtin"]:
+                label = f"🔒 {entry['name']}  ·  {size}"
+                tip = f"{entry['filename']} · {size}\nIncluido con la app (no se puede gestionar)"
+            else:
+                label = f"{entry['name']}  ·  {size}"
+                tip = f"{entry['filename']} · {size}"
+            item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, entry["filename"])
-            item.setToolTip(entry["filename"])
+            item.setToolTip(tip)
             self.list.addItem(item)
-        has_items = self.list.count() > 0
-        for btn in (self.btn_rename, self.btn_remove, self.btn_preview):
-            btn.setEnabled(has_items)
+        self._update_buttons()
+        self._update_preview_button()
 
     def _selected(self):
         item = self.list.currentItem()
         return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def _on_selection_changed(self, *_):
+        if self.audio is not None and self.audio.is_previewing():
+            self.audio.stop_preview()
+        self._update_buttons()
+        self._update_preview_button()
+
+    def _update_buttons(self):
+        filename = self._selected()
+        has_selection = filename is not None
+        builtin = bool(filename) and self.library.is_builtin(filename)
+        self.btn_preview.setEnabled(has_selection and self.audio is not None)
+        self.btn_rename.setEnabled(has_selection and not builtin)
+        self.btn_remove.setEnabled(has_selection and not builtin)
+        self.btn_rename.setToolTip(
+            "Los sonidos incluidos no se pueden renombrar" if builtin else ""
+        )
+        self.btn_remove.setToolTip(
+            "Los sonidos incluidos no se pueden quitar" if builtin else ""
+        )
+
+    def _update_preview_button(self):
+        playing = self.audio is not None and self.audio.is_previewing()
+        self.btn_preview.setText("⏹ Detener" if playing else "▶ Probar")
 
     # ------------------------------------------------------------------ acciones
     def _add(self):
@@ -121,11 +156,14 @@ class AmbientDialog(QDialog):
 
     def _preview(self):
         filename = self._selected()
-        if filename:
-            self.audio.preview_ambient(self.library.path(filename))
+        if not filename or self.audio is None:
+            return
+        self.audio.toggle_preview(self.library.path(filename))
+        self._update_preview_button()
 
     def _stop_preview(self):
-        self.audio.stop_preview()
+        if self.audio is not None:
+            self.audio.stop_preview(resume_ambient=True)
 
     def accept(self):
         self._stop_preview()

@@ -46,6 +46,8 @@ pyinstaller --noconsole --onefile --name "PomodoroTimer" \
     --add-data "resources/tick_normal.wav:." \
     --add-data "resources/tick_slow.wav:." \
     --add-data "resources/notification.wav:." \
+    --add-data "resources/rain.ogg:." \
+    --add-data "resources/ambience.ogg:." \
     MyPomodoro.py > logCompilacion.log
 
 echo "✅ ¡Compilación completada!"

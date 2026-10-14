@@ -81,14 +81,16 @@ def install_sounds(config: ConfigManager):
 class AudioManager:
     AMBIENT_FADE_MS = 400
 
-    def __init__(self, config: ConfigManager):
+    def __init__(self, config: ConfigManager, ambient_library=None):
         self.config = config
+        self.ambient_library = ambient_library
         self.initialized = False
         self.tick_sound = None
         self.notification_sound = None
         self._channel = None
         self._mixer_paused = False
         self._ambient_playing = False
+        self._ambient_was_playing = False
         self._previewing = False
         self.error = None
         self._initialize()
@@ -216,7 +218,10 @@ class AudioManager:
         track = self.config.get("ambient_track")
         if not track:
             return None
-        path = self.config.ambient_dir / track
+        if self.ambient_library is not None:
+            path = self.ambient_library.path(track)
+        else:
+            path = self.config.ambient_dir / track
         return path if path.exists() else None
 
     def start_ambient(self):
@@ -288,27 +293,58 @@ class AudioManager:
             self.start_ambient()
 
     def preview_ambient(self, path):
-        """Reproduce una pista una sola vez (para el dialogo de gestion)."""
+        """Reproduce una pista en bucle para evaluarla (previsualizacion)."""
         if not self.initialized:
             return False
         try:
+            if not self._previewing:
+                self._ambient_was_playing = self._ambient_playing
+            if self._ambient_playing:
+                self.stop_ambient()
             self._ambient_playing = False
             self._previewing = True
             pygame.mixer.music.load(str(path))
             pygame.mixer.music.set_volume(self._ambient_volume_norm())
-            pygame.mixer.music.play(0)
+            pygame.mixer.music.play(-1, fade_ms=self.AMBIENT_FADE_MS)
             return True
         except Exception as e:
             self.error = str(e)
+            self._previewing = False
             return False
 
-    def stop_preview(self):
+    def is_previewing(self):
+        """True si hay una previsualizacion sonando en este momento."""
+        if not self.initialized or not self._previewing:
+            return False
+        try:
+            return bool(pygame.mixer.music.get_busy())
+        except Exception:
+            return False
+
+    def toggle_preview(self, path):
+        """Alterna play/stop de una previsualizacion. Devuelve True si suena."""
+        if self.is_previewing():
+            self.stop_preview(resume_ambient=True)
+            return False
+        if not path:
+            return False
+        self.preview_ambient(path)
+        return self.is_previewing()
+
+    def _resume_ambient(self):
+        if self._ambient_was_playing and self.config.get("ambient_enabled"):
+            self.start_ambient()
+        self._ambient_was_playing = False
+
+    def stop_preview(self, resume_ambient=False):
         if self.initialized and self._previewing:
             try:
                 pygame.mixer.music.stop()
             except Exception:
                 pass
         self._previewing = False
+        if resume_ambient:
+            self._resume_ambient()
 
     def stop_all_music(self):
         self.stop_preview()

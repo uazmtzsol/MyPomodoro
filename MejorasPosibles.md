@@ -38,7 +38,7 @@ propuesta de orden de implementacion (1 = antes).
 
 | # | Categoria | Que incluye | Dificultad | Valor | Estado | Prioridad |
 |---|-----------|-------------|-----------|-------|--------|-----------|
-| C1 | Gestion de tareas | Lista de tareas con estimacion de pomodoros, tarea activa, historial diario | Media | Muy alto | [ ] | 1 |
+| C1 | Gestion de tareas | Lista de tareas con estimacion de pomodoros, tarea activa, historial diario | Media | Muy alto | [x] | 1 (hecha) |
 | C2 | Estadisticas visuales | Graficos semanal, heatmap, tiempo por categoria, exportar CSV | Media | Alto | [ ] | 4 |
 | C3 | Sonidos ambientales | Subida de audios propios, nombre, seleccion, volumen propio | Baja | Alto | [x] | 2 (hecha) |
 | C4 | Descansos activos | Sugerencias de ejercicios en el descanso + temporizador | Muy baja | Medio-Alto | [ ] | 3 |
@@ -79,8 +79,8 @@ Evidencia: carpeta `02-PrimerRefactor` (no versionada). Fuente de ideas, no de a
 
 ## 2. Roadmap priorizado (propuesta)
 
-1. **C1 - Gestion de tareas** (corazon del metodo).
-2. **C3 - Sonidos ambientales** (en curso; facil y muy valorado).
+1. **C1 - Gestion de tareas** (corazon del metodo). Hecha.
+2. **C3 - Sonidos ambientales** (hecha).
 3. **C4 - Descansos activos** (bienestar, trivial).
 4. **C2 - Estadisticas visuales** (motivacion; encaja con B1/B2/B3).
 5. **C6 - Temas/personalizacion**.
@@ -128,3 +128,80 @@ hoy se reproduce una pista a la vez (podria ser una mejora futura).
 
 Prueba de no-regresion: con el ambiente desactivado, el comportamiento debe ser
 identico a v5 (tic-tac + notificacion).
+
+### 3.4 Formatos y tamano
+
+- Formatos admitidos y reproducibles: **wav, ogg, mp3, flac** (via pygame/SDL_mixer).
+  No soportados nativamente: m4a/aac, wma, opus, aiff, mid (requeririan conversion).
+- El dialogo de gestion muestra el **tamano** de cada pista (`format_size()` en
+  `services/ambient_library.py`; `entries()` incluye `size`).
+- Recomendacion al usuario: preferir **ogg/mp3** (un wav pesa ~10x mas). Se evaluo
+  conversion automatica a flac/ogg y se descarto (dependencia externa + sorpresa);
+  la conversion queda como mejora futura opcional (ver C3 pendiente de mezcla).
+
+### 3.5 Sonidos incluidos (bundled)
+
+- Se incluyen dos pistas por defecto en `resources/`: **`rain.ogg`** ("Lluvia") y
+  **`ambience.ogg`** ("Ambiente"). Son las versiones comprimidas de sus `.wav`.
+- Se empaquetan con PyInstaller (`instalador.bat` y notas de macOS con `--add-data`).
+- `AmbientLibrary` los expone como `builtin=True`: aparecen primero en las listas,
+  **siempre existen** y **no se pueden renombrar ni eliminar** (el dialogo los marca
+  con 🔒 y deshabilita Renombrar/Quitar; si se pueden **Probar** y usar).
+- Resolucion de rutas: `resource_manager.get_resources_dir()` (dev: `resources/`;
+  bundle: `_MEIPASS`). `AudioManager` recibe la libreria y resuelve pistas incluidas
+  o del usuario con `library.path()`.
+- Los subidos por el usuario siguen viviendo en `%APPDATA%/PomodoroTimer/ambient/`
+  y son los unicos gestionables. Un nombre de archivo que colisione con un incluido
+  se renombra automaticamente (sufijo `_1`, `_2`...).
+
+### 3.6 Previsualizacion play/stop
+
+- En la ventana principal (expandida) hay un boton **▶/⏹** junto al selector de
+  ambiente: reproduce el seleccionado en bucle y lo detiene. Si el ambiente del
+  temporizador estaba sonando, se reanuda al parar la previsualizacion.
+- En el dialogo de gestion, "Probar" se reemplazo por **▶ Probar / ⏹ Detener**
+  (del elemento seleccionado).
+- Se elimino el boton "Probar sonido" de Ajustes (probaba la notificacion); el
+  volumen de notificacion se sigue pudiendo ajustar, pero sin boton de prueba.
+
+---
+
+## 4. Implementado: C1 - Gestion de tareas
+
+Resultado: se mantiene el diseno previsto. Solo una tarea activa a la vez; al
+completar una sesion de Trabajo se suma 1 al avance de la tarea activa y, al
+alcanzar la estimacion, se marca como hecha automaticamente (y deja de estar
+activa). El **historial diario** quedo diferido a C2 (ya tenemos `completed_at`).
+
+### 4.1 Requisitos del usuario
+
+1. Crear tareas con **titulo** y **estimacion en pomodoros**.
+2. Elegir una **tarea activa** (una sola).
+3. Ver la **tarea activa y su avance** (completados/estimados) en la ventana.
+4. Al alcanzar el estimado, **marcar la tarea como hecha automaticamente**.
+
+### 4.2 Decisiones tomadas
+
+- Persistencia en `%APPDATA%/PomodoroTimer/tasks.json` (fuente unica del estado,
+  incluida la tarea activa); no se duplica en `config.json`.
+- `core/tasks.py` (`TaskManager`) es logica pura y testeable (acepta una ruta).
+- La tarea **no altera** las transiciones del temporizador: solo registra avance.
+- Al completar o marcar hecha la tarea activa, el slot activo se limpia.
+- Modelo: `{id, title, estimated, completed, done, created, completed_at}`.
+
+### 4.3 Plan incremental y pruebas
+
+1. `services/resource_manager.py`: `get_tasks_path()`.
+2. `core/tasks.py`: `TaskManager` (`add`/`update`/`remove`/`select_active`/
+   `record_pomodoro`/`set_done`/`list_pending`/`list_done`). Exportado en
+   `core/__init__.py`.
+3. `ui/tasks_dialog.py`: crear/editar/marcar hecha/eliminar/usar como activa/
+   limpiar completadas; senal `changed`.
+4. `ui/main_window.py`: boton "Tareas", etiqueta de tarea activa (modo expandido),
+   enganche en `_on_session_complete` (solo sesiones de Trabajo) y tooltip de
+   bandeja con la tarea activa.
+5. Pruebas: `TaskManager` en carpeta temporal (alta/avance/auto-done/persistencia/
+   archivo corrupto) y smoke GUI (crear -> activar -> completar trabajos -> auto-done).
+
+Prueba de no-regresion: sin tarea activa, el comportamiento del temporizador es
+identico al actual.

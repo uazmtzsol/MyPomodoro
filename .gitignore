@@ -1,3 +1,7 @@
 /01-OldFiles
 /build
 /dist
+/02-PrimerRefactor
+
+__pycache__/
+*.py[cod]

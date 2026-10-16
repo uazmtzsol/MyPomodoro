@@ -69,11 +69,12 @@ Evidencia: carpeta `02-PrimerRefactor` (no versionada). Fuente de ideas, no de a
 | # | Observacion | Estado | Notas |
 |---|-------------|--------|-------|
 | D1 | `DURATION_KEYS` exportado sin uso real | [ ] | Limpiar o documentar |
-| D2 | `ComentariosMac.md` referencia `MyPomodoro.py` y rutas viejas | [ ] | Actualizar a `main.py` + `resources/` |
-| D3 | Falta `instalar_mac.sh` real (solo descrito) | [ ] | Crear al retomar mac |
+| D2 | `ComentariosMac.md` referencia `MyPomodoro.py` y rutas viejas | [x] | Actualizado a `main.py` + version PyQt6 para Big Sur |
+| D3 | Falta `instalar_mac.sh` real (solo descrito) | [x] | Creado (`main.py`, separador `:`, `.icns`); usa `requirements-mac.txt` |
 | D4 | Sin pruebas automatizadas de `core/` | [ ] | Anadir tests basicos de timer/stats |
 | D5 | `logCompilacion.log` no ignorado por git | [x] | Anadido a `.gitignore` (+ `03-ExtraFiles/`) |
-| D6 | Comillas/separador `:` en empaquetado mac | [ ] | Ver `ComentariosMac.md` |
+| D6 | Comillas/separador `:` en empaquetado mac | [x] | Resuelto en `instalar_mac.sh` (`--add-data ...:.`) |
+| D7 | PyQt6 incompatible con Big Sur si no se fija version | [x] | Fijado `PyQt6==6.7.1` (ultima con Qt 6.7 / macOS 11) |
 
 ---
 

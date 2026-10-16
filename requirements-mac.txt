@@ -1,0 +1,14 @@
+# Dependencias para COMPILAR Pomodoro Timer en macOS (incluido Big Sur / macOS 11).
+#
+# IMPORTANTE - no actualizar PyQt6 por encima de 6.7.x:
+#   PyQt6 6.7.x trae Qt 6.7, cuya plataforma objetivo es macOS 11 - 14
+#   y se distribuye como binario "universal2" (Intel + Apple Silicon).
+#   PyQt6 >= 6.8 trae Qt 6.8+, que SOLO funciona en macOS 12 o superior, y
+#   en Big Sur muestra el error: "The application requires macOS 12.0 or later".
+#
+# Se instala dentro del entorno virtual creado por instalar_mac.sh.
+
+PyQt6==6.7.1
+pygame>=2.5,<3
+numpy>=1.24
+pyinstaller>=6.6,<7

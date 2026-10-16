@@ -13,7 +13,7 @@ Sin embargo, hay **3 reglas de oro** y un par de ajustes menores para que funcio
 En Windows usabas `;.` en el comando de PyInstaller. En macOS y Linux, el separador es `:`. Si usas `;`, la compilación fallará o los archivos no se copiarán.
 
 ### 🚨 Regla de Oro #3: El formato del ícono
-Windows usa `.ico`. macOS usa **`.icns`**. PyInstaller puede intentar usar un `.ico` en Mac, pero a menudo se ve pixelado o no se muestra en el Dock. Te recomiendo encarecidamente convertir tu `ModernPomodoro.ico` a `ModernPomodoro.icns` (hay conversores online gratuitos como *cloudconvert.com*).
+Windows usa `.ico`. macOS usa **`.icns`**. PyInstaller puede intentar usar un `.ico` en Mac, pero a menudo se ve pixelado o no se muestra en el Dock. Ya se incluye `resources/ModernPomodoro.icns` (generado desde el `.ico`), asi que `instalar_mac.sh` lo usara automaticamente para el icono del `.app`.
 
 ---
 
@@ -22,43 +22,23 @@ Windows usa `.ico`. macOS usa **`.icns`**. PyInstaller puede intentar usar un `.
 #### 1. Preparar el entorno en la Mac
 Big Sur viene con Python 3.8, pero te recomiendo instalar **Python 3.9, 3.10 o 3.11** (desde python.org o usando Homebrew), ya que tienen mejor soporte para las versiones estables de PyQt6.
 
-Abre la Terminal en la Mac e instala las dependencias. Para asegurar compatibilidad con Big Sur, usa versiones ligeramente consolidadas:
-```bash
-pip3 install PyQt6==6.4.2 pygame numpy pyinstaller
-```
-*(La versión 6.4.x de PyQt6 es extremadamente estable en macOS 11).*
+**La clave para Big Sur es fijar la version de PyQt6.** La ultima version de PyQt6 compatible con macOS 11 es **PyQt6 6.7.1** (trae Qt 6.7, con objetivo macOS 11-14, en binario universal2). A partir de **PyQt6 6.8** se usa Qt 6.8+, que **solo funciona en macOS 12 o superior** y falla en Big Sur con:
 
-#### 2. El script de compilación para Mac (`instalar_mac.sh`)
-Crea un archivo llamado `instalar_mac.sh` en la misma carpeta de tu proyecto (junto a `MyPomodoro.py` y la carpeta `resources`) con el siguiente contenido:
+> *The application requires macOS 12.0 or later.*
 
-```bash
-#!/bin/bash
+Por eso **no** sirve `pip install PyQt6` a secas (instala la ultima, incompatible). Usa el archivo `requirements-mac.txt` incluido en el proyecto, que fija `PyQt6==6.7.1`. No hace falta instalar nada a mano: el script `instalar_mac.sh` crea un entorno virtual en `.venv-mac/` e instala todo ahi.
 
-echo "🧹 Limpiando compilaciones anteriores..."
-rm -rf build dist PomodoroTimer.spec
+#### 2. El script de compilacion para Mac (`instalar_mac.sh`)
+Ya existe el archivo **`instalar_mac.sh`** en la carpeta del proyecto. Hace todo el trabajo:
 
-echo "📦 Empaquetando aplicación para macOS..."
-
-# ¡OJO! Aquí se usan DOS PUNTOS (:) en lugar de punto y coma (;)
-pyinstaller --noconsole --onefile --name "PomodoroTimer" \
-    --icon="resources/ModernPomodoro.icns" \
-    --add-data "resources/ModernPomodoro.icns:." \
-    --add-data "resources/tick_normal.wav:." \
-    --add-data "resources/tick_slow.wav:." \
-    --add-data "resources/notification.wav:." \
-    --add-data "resources/rain.ogg:." \
-    --add-data "resources/ambience.ogg:." \
-    MyPomodoro.py > logCompilacion.log
-
-echo "✅ ¡Compilación completada!"
-echo "Revisa logCompilacion.log si hubo advertencias."
-echo "La aplicación está en la carpeta 'dist/PomodoroTimer.app'"
-```
-
-*Nota: Si aún no tienes el archivo `.icns` y quieres probar rápido, cambia `.icns` por `.ico` en el script, pero el resultado visual no será nativo.*
+- Crea un entorno virtual aislado (`.venv-mac/`).
+- Instala las dependencias fijadas de `requirements-mac.txt` (PyQt6 6.7.1, pygame, numpy, pyinstaller).
+- Limpia compilaciones anteriores.
+- Empaqueta `main.py` usando DOS PUNTOS (`:`) como separador de `--add-data` y el icono `.icns`.
+- Genera `dist/PomodoroTimer.app`.
 
 #### 3. Ejecutar el script
-En la Terminal, dale permisos de ejecución al script y ejecútalo:
+En la Terminal, dentro de la carpeta del proyecto:
 ```bash
 chmod +x instalar_mac.sh
 ./instalar_mac.sh
@@ -72,29 +52,14 @@ En macOS, los ejecutables de una sola carpeta (`--onedir`) suelen ser más estab
 
 ---
 
-### ¿Hay algo en el código que debas cambiar?
+### ¿Hay algo en el código que debas cambiar para el nombre de la barra de menú?
 
-Solo un **pequeño ajuste cosmético** para que macOS no muestre el nombre "Python" en la barra de menú superior. Agrega estas dos líneas justo después de crear la instancia de `QApplication` en tu función `main()`:
+**Aclaración importante:** en macOS el nombre que aparece en la barra de menú superior (la manzana) **no** lo controla `QApplication.setApplicationName()`, sino el `CFBundleName` del `Info.plist` del bundle `.app`.
 
-```python
-def main():
-    # ... (tu código de ctypes para Windows se mantiene igual) ...
-    
-    app = QApplication(sys.argv)
-    
-    # AGREGAR ESTO PARA MAC: Establece el nombre de la aplicación en la barra de menú
-    app.setApplicationName("Pomodoro Timer")
-    if sys.platform == "darwin":
-        # Esto ayuda a que macOS lo trate como una app nativa en el Dock
-        import os
-        os.environ["QT_MAC_WANTS_LAYER"] = "1" 
+- `main.py` ya llama a `app.setApplicationName("Pomodoro Timer")` (y el título de la ventana ya es "Pomodoro Timer"), lo cual está bien, pero por sí solo no cambia la barra de menú de macOS.
+- Por eso `instalar_mac.sh` añade `--osx-bundle-identifier "com.pomodorotimer.app"` y, **después de compilar**, reescribe `CFBundleName` y `CFBundleDisplayName` a `Pomodoro Timer` con `PlistBuddy` (`CFBundleName` admite hasta 15 caracteres, y "Pomodoro Timer" tiene 14). Así la barra de menú muestra "Pomodoro Timer" en lugar de "PomodoroTimer" o "Python".
 
-    app.setFont(QFont("Segoe UI", 10)) # En Mac se verá como San Francisco automáticamente
-    app.setQuitOnLastWindowClosed(False)
-    
-    # ... (el resto de tu código sigue igual) ...
-```
-*(Nota: "Segoe UI" en macOS será ignorado elegantemente por Qt y usará la fuente del sistema, que es San Francisco, por lo que se verá nativo).*
+No necesitas tocar el código: el ajuste lo hace el script de compilación.
 
 ### Resumen de compatibilidad:
 | Característica | Estado en macOS Big Sur |
